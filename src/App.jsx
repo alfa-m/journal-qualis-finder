@@ -17,7 +17,6 @@ export default function App() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
-  const [area, setArea] = useState("");
   const [minQualis, setMinQualis] = useState("");
   const [error, setError] = useState("");
 
@@ -26,12 +25,11 @@ export default function App() {
     setLoading(true);
     try {
       const results = await registry.runAll(text, {
-        area,
         minQualis,
         maxResults: appConfig.maxResults
       });
 
-      // Merge por ISSN/título (bem simples)
+      // Merge por ISSN/título
       const byKey = new Map();
       for (const r of results) {
         const key = (r.issn || "").trim() || r.journalTitle;
@@ -39,12 +37,11 @@ export default function App() {
 
         if (!prev) byKey.set(key, r);
         else {
-          // “enriquece”: se um provider trouxe qualis e outro trouxe URL, junta.
+          // se um provider trouxe qualis e outro trouxe URL, junta.
           byKey.set(key, {
             ...prev,
             ...r,
             qualis: prev.qualis || r.qualis,
-            area: prev.area || r.area,
             url: prev.url || r.url,
             provider: `${prev.provider}+${r.provider}`,
             score: Math.max(prev.score || 0, r.score || 0)
@@ -78,24 +75,12 @@ export default function App() {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Ex.: 'Sistemas fotovoltaicos off-grid' "
+          placeholder="Ex.: 'Sistemas fotovoltaicos off-grid'"
         />
 
         <div style={{ height: 12 }} />
 
         <div className="row">
-          <div className="grow">
-            <label>
-              <small>Área (opcional)</small>
-            </label>
-            <input
-              value={area}
-              onChange={(e) => setArea(e.target.value)}
-              placeholder="Ex.: CIÊNCIA DA COMPUTAÇÃO"
-              style={{ width: "100%" }}
-            />
-          </div>
-
           <div>
             <label>
               <small>Qualis mínimo</small>
@@ -121,9 +106,7 @@ export default function App() {
           </div>
         </div>
 
-        {error ? (
-          <p style={{ color: "crimson", marginTop: 10 }}>{error}</p>
-        ) : null}
+        {error ? <p style={{ color: "crimson", marginTop: 10 }}>{error}</p> : null}
 
         <ResultsTable rows={rows} />
       </div>
@@ -134,10 +117,10 @@ export default function App() {
         <h1>Como evoluir esse projeto</h1>
         <ul>
           <li>
-            Substituir o <span className="badge">qualis.sample.json</span> por um JSON real do Qualis (por quadriênio e área).
+            Trocar o <span className="badge">qualis.sample.json</span> pelo dataset final (pode incluir área/quadriênio no futuro).
           </li>
           <li>
-            Trocar o <span className="badge">recommender-basic</span> por embeddings (ex.: TF-IDF, sentence transformers via serviço, etc.).
+            Trocar o <span className="badge">recommender-basic</span> por embeddings (TF-IDF, modelos de sentença via serviço, etc.).
           </li>
           <li>
             Adicionar novos providers (Scopus, DOAJ, Semantic Scholar, OpenAlex, etc.) usando o mesmo contrato.
@@ -150,7 +133,11 @@ export default function App() {
 
 function ResultsTable({ rows }) {
   if (!rows?.length) {
-    return <p style={{ marginTop: 12 }}><small>Nenhum resultado ainda.</small></p>;
+    return (
+      <p style={{ marginTop: 12 }}>
+        <small>Nenhum resultado ainda.</small>
+      </p>
+    );
   }
 
   return (
@@ -159,7 +146,6 @@ function ResultsTable({ rows }) {
         <tr>
           <th>Periódico</th>
           <th>ISSN</th>
-          <th>Área</th>
           <th>Qualis</th>
           <th>Fonte</th>
         </tr>
@@ -180,12 +166,10 @@ function ResultsTable({ rows }) {
               <small>score: {(r.score ?? 0).toFixed(2)}</small>
             </td>
             <td>{r.issn || "-"}</td>
-            <td>{r.area || "-"}</td>
+            <td>{r.qualis ? <span className="badge">{r.qualis}</span> : "-"}</td>
             <td>
-              {r.qualis ? <span className="badge">{r.qualis}</span> : "-"}
-              {r.event ? <div><small>{r.event}</small></div> : null}
+              <small>{r.provider}</small>
             </td>
-            <td><small>{r.provider}</small></td>
           </tr>
         ))}
       </tbody>

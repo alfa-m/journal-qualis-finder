@@ -18,26 +18,34 @@ export function createRecommenderBasicProvider() {
     async search(query, options = {}) {
       const q = normalizeText(query);
       if (!q) return [];
+
       const data = await loadQualis();
 
-      const scored = data
+      // O JSON tem: ISSN, Título, Estrato :contentReference[oaicite:2]{index=2}
+      const normalized = data
+        .map((row) => ({
+          issn: (row?.ISSN || "").trim() || null,
+          title: (row?.["Título"] || "").trim(),
+          qualis: (row?.Estrato || "").trim().toUpperCase() || null
+        }))
+        .filter((j) => j.title);
+
+      const scored = normalized
         .map((j) => ({
           ...j,
           _score: tokenOverlapScore(q, j.title)
         }))
-        .filter((j) => j._score > 0);
-
-      const top = scored
+        .filter((j) => j._score > 0)
         .sort((a, b) => b._score - a._score)
         .slice(0, options.maxResults || 20);
 
-      return top.map((j) => ({
+      return scored.map((j) => ({
         provider: "recommender-basic",
         journalTitle: j.title,
         issn: j.issn,
-        area: j.area,
+        area: null,
         qualis: j.qualis,
-        event: j.event,
+        event: null,
         url: null,
         score: j._score
       }));

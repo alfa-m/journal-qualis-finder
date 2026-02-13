@@ -17,33 +17,38 @@ export function createQualisLocalProvider() {
     name: "Qualis (JSON local)",
     async search(query, options = {}) {
       const q = normalizeText(query);
+      if (!q) return [];
+
       const data = await load();
 
-      const area = options.area?.trim() || "";
-      const minQualis = options.minQualis || "";
+      // O JSON tem: ISSN, Título, Estrato :contentReference[oaicite:1]{index=1}
+      const normalized = data
+        .map((row) => ({
+          issn: (row?.ISSN || "").trim() || null,
+          title: (row?.["Título"] || "").trim(),
+          qualis: (row?.Estrato || "").trim().toUpperCase() || null
+        }))
+        .filter((j) => j.title);
 
-      // Ordenação aproximada por similaridade com título do periódico
-      const scored = data
+      const minQualis = (options.minQualis || "").trim().toUpperCase();
+
+      const scored = normalized
         .map((j) => ({
           ...j,
           _score: tokenOverlapScore(q, j.title)
         }))
-        .filter((j) => j._score > 0);
-
-      const filtered = scored
-        .filter((j) => (area ? j.area === area : true))
+        .filter((j) => j._score > 0)
         .filter((j) => (minQualis ? qualisRank(j.qualis) <= qualisRank(minQualis) : true))
         .sort((a, b) => b._score - a._score)
         .slice(0, options.maxResults || 50);
 
-      // Padroniza o formato de saída
-      return filtered.map((j) => ({
+      return scored.map((j) => ({
         provider: "qualis-local",
         journalTitle: j.title,
         issn: j.issn,
-        area: j.area,
+        area: null,
         qualis: j.qualis,
-        event: j.event,
+        event: null,
         url: null,
         score: j._score
       }));
