@@ -16,7 +16,7 @@ export function createSpringerProvider() {
       // Exemplo ilustrativo: usa endpoint genérico; ajuste para o que você contratar/usar.
       const url = new URL("https://api.springernature.com/metadata/json");
       url.searchParams.set("q", q);
-      url.searchParams.set("p", "5");
+      url.searchParams.set("p", "25");
       url.searchParams.set("api_key", appConfig.springerApiKey);
 
       const res = await fetch(url.toString());

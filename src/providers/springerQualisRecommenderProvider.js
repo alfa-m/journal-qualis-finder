@@ -2,14 +2,15 @@ import { appConfig } from "../config/appConfig.js";
 import { normalizeText } from "../core/textUtils.js";
 
 /**
- * Recomendador por tema (abstract/ideia) via Springer Meta API (v2),
- * SEM expor a API key no frontend.
+ * Recomendador por tema (abstract/ideia) via Springer Meta API v2,
+ * SEM expor API key no frontend.
  *
- * Fluxo:
- * 1) Frontend chama appConfig.springerProxyUrl (Cloudflare Worker)
- * 2) Worker injeta SPRINGER_API_KEY (secret) e chama:
- *    https://api.springernature.com/meta/v2/json
- * 3) Provider agrega resultados por periódico e cruza com Qualis local.
+ * Este provider chama um Cloudflare Worker (proxy), que injeta a key e consulta:
+ *   https://api.springernature.com/meta/v2/json
+ *
+ * Para se adequar ao plano grátis:
+ * - Nunca solicita p > 25 (capado)
+ * - Usa paginação (s/start) para obter mais resultados com múltiplas chamadas
  */
 export function createSpringerQualisRecommenderProvider() {
   let qualisCache = null;
@@ -31,7 +32,6 @@ export function createSpringerQualisRecommenderProvider() {
     const byTitle = new Map();
 
     for (const row of data) {
-      // Seu dataset: ISSN, "Título", Estrato
       const issnRaw = (row?.ISSN || "").trim();
       const title = (row?.["Título"] || "").trim();
       const qualis = (row?.Estrato || "").trim().toUpperCase();
@@ -50,13 +50,7 @@ export function createSpringerQualisRecommenderProvider() {
     return (issn || "").replace(/\s/g, "");
   }
 
-  // Tenta extrair ISSN de respostas que podem variar
   function extractIssn(rec) {
-    // Alguns formatos possíveis:
-    // - rec.issn
-    // - rec.issn = ["xxxx-xxxx", ...]
-    // - rec.issnPrint / rec.issnElectronic
-    // - rec.publication?.issn (objeto)
     const v =
       rec?.issn ??
       rec?.issnPrint ??
@@ -72,11 +66,6 @@ export function createSpringerQualisRecommenderProvider() {
   }
 
   function extractJournalTitle(rec) {
-    // Possíveis campos:
-    // - publicationName
-    // - journalTitle
-    // - journal
-    // - publication.title
     return (
       rec?.publicationName ||
       rec?.journalTitle ||
@@ -87,10 +76,6 @@ export function createSpringerQualisRecommenderProvider() {
   }
 
   function extractUrl(rec) {
-    // Possíveis formatos:
-    // - rec.url = [{ value: "..." }]
-    // - rec.url = "..."
-    // - rec.doi -> montar URL
     const u = rec?.url ?? rec?.urls ?? null;
     if (Array.isArray(u)) return u?.[0]?.value || u?.[0] || null;
     if (typeof u === "string") return u;
@@ -101,14 +86,7 @@ export function createSpringerQualisRecommenderProvider() {
     return null;
   }
 
-  // Detecta lista de resultados em diferentes formatos de payload.
   function extractRecords(payload) {
-    // Alguns retornos comuns em APIs Springer:
-    // - { records: [...] }
-    // - { result: [...] }
-    // - { results: [...] }
-    // - { data: { records: [...] } }
-    // - { response: { records: [...] } }
     const candidates = [
       payload?.records,
       payload?.result,
@@ -118,15 +96,24 @@ export function createSpringerQualisRecommenderProvider() {
       payload?.response?.records,
       payload?.response?.results
     ];
-
     for (const c of candidates) {
       if (Array.isArray(c)) return c;
     }
-
-    // fallback: se payload já for array
     if (Array.isArray(payload)) return payload;
-
     return [];
+  }
+
+  function looksLikePremiumRestriction(payload) {
+    // Ex.: {status:"Fail", message:"Access to this resource is restricted. This is a premium feature", ...}
+    const status = (payload?.status || "").toString().toLowerCase();
+    const msg = (payload?.message || "").toString().toLowerCase();
+    const errDesc = (payload?.error?.error_description || "").toString().toLowerCase();
+    return (
+      status === "fail" &&
+      (msg.includes("premium") ||
+        msg.includes("restricted") ||
+        errDesc.includes("premium"))
+    );
   }
 
   return {
@@ -142,30 +129,62 @@ export function createSpringerQualisRecommenderProvider() {
 
       const { byIssn, byTitle } = await buildQualisIndex();
 
-      // Chama o Cloudflare Worker (que por sua vez chama:
-      // https://api.springernature.com/meta/v2/json com a key em secret)
-      const url = new URL(appConfig.springerProxyUrl);
-      url.searchParams.set("q", query);
-      url.searchParams.set("p", String(options.p || 5));
+      // Plano grátis: p máximo 25 (capado)
+      const pageSize = Math.min(
+        Number(options.p || appConfig.springerPageSize || 25),
+        25
+      );
 
-      const res = await fetch(url.toString(), {
-        headers: { Accept: "application/json" }
-      });
+      const maxPages = Math.max(
+        1,
+        Number(options.maxPages || appConfig.springerMaxPages || 4)
+      );
 
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(
-          `Proxy Springer falhou (HTTP ${res.status}). ${txt?.slice(0, 200) || ""}`.trim()
-        );
+      // Parâmetro de paginação (no Worker você deve repassar isso para a Springer)
+      const startParam = (appConfig.springerStartParam || "s").toString();
+
+      // Coleta paginada
+      const allRecords = [];
+      for (let page = 0; page < maxPages; page++) {
+        const start = 1 + page * pageSize;
+
+        const url = new URL(appConfig.springerProxyUrl);
+        url.searchParams.set("q", query);
+        url.searchParams.set("p", String(pageSize));
+        url.searchParams.set(startParam, String(start));
+
+        const res = await fetch(url.toString(), {
+          headers: { Accept: "application/json" }
+        });
+
+        // Se der rate limit, para e devolve o que já tem
+        if (res.status === 429) break;
+
+        // Se o proxy repassar 403, para (premium/forbidden/etc.)
+        if (res.status === 403) break;
+
+        if (!res.ok) {
+          // Qualquer erro -> para e devolve o que já tem (não explode a UX)
+          break;
+        }
+
+        const payload = await res.json();
+
+        // Se payload indicar premium restriction, para
+        if (looksLikePremiumRestriction(payload)) break;
+
+        const records = extractRecords(payload);
+        if (!records.length) break;
+
+        allRecords.push(...records);
+
+        // Se veio menos que pageSize, provavelmente acabou
+        if (records.length < pageSize) break;
       }
 
-      const payload = await res.json();
-      const records = extractRecords(payload);
-
-      // Agrega por periódico (maior "hits" => mais recorrente nos resultados do tema)
+      // Agrega por periódico
       const counts = new Map();
-
-      for (const rec of records) {
+      for (const rec of allRecords) {
         const journalTitle = extractJournalTitle(rec);
         if (!journalTitle) continue;
 
@@ -189,12 +208,11 @@ export function createSpringerQualisRecommenderProvider() {
         counts.set(key, prev);
       }
 
-      // Converte para resultados e cruza com Qualis local
+      // Converte e cruza com Qualis
       let results = Array.from(counts.values())
         .sort((a, b) => b.hits - a.hits)
         .slice(0, options.maxResults || appConfig.maxResults || 50)
         .map((j) => {
-          // Match por ISSN primeiro; senão por título normalizado
           let qualis = null;
 
           if (j.issn && byIssn.has(j.issn)) {
@@ -212,12 +230,10 @@ export function createSpringerQualisRecommenderProvider() {
             qualis,
             event: null,
             url: j.url,
-            // score simples: frequência do periódico nos resultados
             score: j.hits
           };
         });
 
-      // Filtro por Qualis mínimo (se definido)
       const minQualis = (options.minQualis || "").trim().toUpperCase();
       if (minQualis) {
         results = results.filter((r) =>
@@ -230,7 +246,6 @@ export function createSpringerQualisRecommenderProvider() {
   };
 }
 
-// Quanto menor, melhor (A1 é topo)
 function qualisRank(q) {
   const order = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "C"];
   const idx = order.indexOf((q || "").toUpperCase());

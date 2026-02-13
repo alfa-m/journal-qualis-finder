@@ -1,7 +1,20 @@
 export const appConfig = {
-  // Para Springer: coloque sua chave em Settings → Secrets se for usar via build,
-  // ou use VITE_SPRINGER_API_KEY em ambiente local.
-  springerProxyUrl: "https://journal-qualis-springer-proxy.alfa-m-account.workers.dev/api/springer",  // Arquivo Qualis local (no /public)
+  // Proxy no Cloudflare Worker (a API key fica lá como secret)
+  springerProxyUrl:
+    "https://journal-qualis-springer-proxy.alfa-m-account.workers.dev/api/springer",
+
+  // Plano grátis: page size máximo (p)
+  springerPageSize: 25,
+
+  // Quantas páginas buscar (p=25). Ex.: 4 páginas => até ~100 registros
+  springerMaxPages: 4,
+
+  // Parâmetro de paginação usado no Worker/endpoint (geralmente "s" ou "start")
+  springerStartParam: "s",
+
+  // Arquivo Qualis local (no /public)
   qualisJsonUrl: `${import.meta.env.BASE_URL}qualis.sample.json`,
-  maxResults: 5
+
+  // Quantos periódicos mostrar no final
+  maxResults: 50
 };

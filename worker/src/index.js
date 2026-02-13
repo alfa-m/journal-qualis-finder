@@ -11,13 +11,20 @@ export default {
       }
 
       const q = url.searchParams.get("q") || "";
-      const p = url.searchParams.get("p") || "5";
+      // Plano grátis: mantenha p <= 25
+      const p = String(Math.min(Number(url.searchParams.get("p") || "25"), 25));
+      // Paginação (provider manda s=1,26,51...)
+      const s = url.searchParams.get("s") || "1";
 
       if (!q.trim()) {
         return corsResponse(request, { error: "Missing query param: q" }, 400);
       }
       if (!env.SPRINGER_API_KEY) {
-        return corsResponse(request, { error: "Server not configured (missing SPRINGER_API_KEY)" }, 500);
+        return corsResponse(
+          request,
+          { error: "Server not configured (missing SPRINGER_API_KEY)" },
+          500
+        );
       }
 
       const origin = request.headers.get("Origin") || "";
@@ -31,6 +38,7 @@ export default {
       const springer = new URL("https://api.springernature.com/meta/v2/json");
       springer.searchParams.set("q", q);
       springer.searchParams.set("p", p);
+      springer.searchParams.set("s", s);
       springer.searchParams.set("api_key", env.SPRINGER_API_KEY);
 
       const upstream = await fetch(springer.toString(), {
@@ -42,7 +50,9 @@ export default {
       const resp = new Response(bodyText, {
         status: upstream.status,
         headers: {
-          "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
+          "content-type":
+            upstream.headers.get("content-type") ||
+            "application/json; charset=utf-8",
           "cache-control": "public, max-age=600"
         }
       });
@@ -60,30 +70,28 @@ export default {
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
-  const cacheKey = new Request(`${url.toString()}::origin=${origin}`, request);
 
-  // Restrinja ao seu Pages
   const allowList = [
-    "https://alfa-m.github.io/journal-qualis-finder/",
-    "https://alfa-m.github.io/"
+    "https://alfa-m.github.io",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
   ];
 
-  // Se não tem Origin (ex.: curl), não precisa CORS
+  // Sem Origin (ex.: curl) -> não precisa CORS
   if (!origin) return {};
 
-  // Bloqueia origens não permitidas
-  if (!allowList.includes(origin)) {
+  // Se origin permitido, devolve ele
+  if (allowList.includes(origin)) {
     return {
-      "access-control-allow-origin": "null"
+      "access-control-allow-origin": origin,
+      "access-control-allow-methods": "GET,OPTIONS",
+      "access-control-allow-headers": "content-type",
+      "access-control-max-age": "86400"
     };
   }
 
-  return {
-    "access-control-allow-origin": origin,
-    "access-control-allow-methods": "GET,OPTIONS",
-    "access-control-allow-headers": "content-type",
-    "access-control-max-age": "86400"
-  };
+  // Bloqueia origens não permitidas
+  return { "access-control-allow-origin": "null" };
 }
 
 function withCors(request, response) {
