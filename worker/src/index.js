@@ -11,7 +11,7 @@ export default {
       }
 
       const q = url.searchParams.get("q") || "";
-      const p = url.searchParams.get("p") || "50";
+      const p = url.searchParams.get("p") || "10";
 
       if (!q.trim()) {
         return corsResponse(request, { error: "Missing query param: q" }, 400);

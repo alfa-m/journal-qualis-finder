@@ -34,7 +34,7 @@ export function createQualisLocalProvider() {
         .filter((j) => (area ? j.area === area : true))
         .filter((j) => (minQualis ? qualisRank(j.qualis) <= qualisRank(minQualis) : true))
         .sort((a, b) => b._score - a._score)
-        .slice(0, options.maxResults || 50);
+        .slice(0, options.maxResults || 10);
 
       // Padroniza o formato de saída
       return filtered.map((j) => ({
