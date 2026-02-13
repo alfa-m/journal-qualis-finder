@@ -4,15 +4,23 @@ import { appConfig } from "./config/appConfig.js";
 import { createQualisLocalProvider } from "./providers/qualisLocalProvider.js";
 import { createSpringerProvider } from "./providers/springerProvider.js";
 import { createRecommenderBasicProvider } from "./providers/recommenderBasicProvider.js";
+import { createSpringerQualisRecommenderProvider } from "./providers/springerQualisRecommenderProvider.js";
 
 export default function App() {
   const registry = useMemo(() => {
-    const r = new ProviderRegistry();
-    r.register(createRecommenderBasicProvider());
-    r.register(createQualisLocalProvider());
-    r.register(createSpringerProvider());
-    return r;
-  }, []);
+  const r = new ProviderRegistry();
+
+  // Recomendação real por tema:
+  r.register(createSpringerQualisRecommenderProvider());
+
+  // (Opcional) manter consulta direta ao Qualis por nome do periódico:
+  // r.register(createQualisLocalProvider());
+
+  // (Opcional) manter Springer's raw provider:
+  // r.register(createSpringerProvider());
+
+  return r;
+}, []);
 
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
