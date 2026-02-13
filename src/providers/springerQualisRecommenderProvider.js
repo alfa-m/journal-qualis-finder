@@ -146,7 +146,7 @@ export function createSpringerQualisRecommenderProvider() {
       // https://api.springernature.com/meta/v2/json com a key em secret)
       const url = new URL(appConfig.springerProxyUrl);
       url.searchParams.set("q", query);
-      url.searchParams.set("p", String(options.p || 10));
+      url.searchParams.set("p", String(options.p || 5));
 
       const res = await fetch(url.toString(), {
         headers: { Accept: "application/json" }

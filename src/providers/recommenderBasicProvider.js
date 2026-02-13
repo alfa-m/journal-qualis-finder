@@ -29,7 +29,7 @@ export function createRecommenderBasicProvider() {
 
       const top = scored
         .sort((a, b) => b._score - a._score)
-        .slice(0, options.maxResults || 50);
+        .slice(0, options.maxResults || 5);
 
       return top.map((j) => ({
         provider: "recommender-basic",
