@@ -5,26 +5,22 @@ import { loadQualisCatalog, findQualisFile } from "./core/qualisCatalog.js";
 import { createSpringerQualisRecommenderProvider } from "./providers/springerQualisRecommenderProvider.js";
 
 export default function App() {
-  // Providers
   const registry = useMemo(() => {
     const r = new ProviderRegistry();
     r.register(createSpringerQualisRecommenderProvider());
     return r;
   }, []);
 
-  // Input + UI state
   const [text, setText] = useState("");
   const [minQualis, setMinQualis] = useState("");
   const [onlyWithQualis, setOnlyWithQualis] = useState(true);
 
-  // Qualis Catalog (período/área)
   const [catalog, setCatalog] = useState(null);
   const [catalogError, setCatalogError] = useState("");
 
   const [periodId, setPeriodId] = useState("");
   const [areaId, setAreaId] = useState("");
 
-  // Results + status
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
@@ -35,7 +31,6 @@ export default function App() {
     springerRecords: null
   });
 
-  // Load Qualis catalog on mount
   useEffect(() => {
     let mounted = true;
 
@@ -44,7 +39,6 @@ export default function App() {
         if (!mounted) return;
         setCatalog(c);
 
-        // defaults: 1º período e 1ª área
         const p0 = c?.periods?.[0];
         const a0 = p0?.areas?.[0];
 
@@ -62,8 +56,7 @@ export default function App() {
   }, []);
 
   const periodOptions = catalog?.periods || [];
-  const areaOptions =
-    periodOptions.find((p) => p.id === periodId)?.areas || [];
+  const areaOptions = periodOptions.find((p) => p.id === periodId)?.areas || [];
 
   const qualisFile = catalog ? findQualisFile(catalog, periodId, areaId) : null;
 
@@ -87,7 +80,6 @@ export default function App() {
         onMeta: (m) => setMeta((prev) => ({ ...prev, ...m }))
       });
 
-      // Merge por ISSN/título (mantém o melhor score e completa campos)
       const byKey = new Map();
       for (const r of results) {
         const key = (r.issn || "").trim() || r.journalTitle;
@@ -146,61 +138,51 @@ export default function App() {
 
         <div style={{ height: 12 }} />
 
-        {/* Seletores de Período/Área */}
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Cole aqui seu título/abstract/ideia…"
+        />
+
+        <div style={{ height: 12 }} />
+
         <div className="row">
           <div>
-            <label>
-              <small>Período (Evento de Classificação)</small>
-            </label>
+            <label><small>Período (Evento de Classificação)</small></label>
             <select
               value={periodId}
               onChange={(e) => {
                 const newPeriod = e.target.value;
                 setPeriodId(newPeriod);
-
-                // reseta área para primeira do novo período
-                const nextAreas = (catalog?.periods || []).find((p) => p.id === newPeriod)?.areas || [];
+                const nextAreas =
+                  (catalog?.periods || []).find((p) => p.id === newPeriod)?.areas || [];
                 setAreaId(nextAreas?.[0]?.id || "");
               }}
               disabled={!periodOptions.length}
             >
-              {!periodOptions.length ? (
-                <option value="">Carregando…</option>
-              ) : null}
-
+              {!periodOptions.length ? <option value="">Carregando…</option> : null}
               {periodOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
+                <option key={p.id} value={p.id}>{p.label}</option>
               ))}
             </select>
           </div>
 
           <div>
-            <label>
-              <small>Área</small>
-            </label>
+            <label><small>Área</small></label>
             <select
               value={areaId}
               onChange={(e) => setAreaId(e.target.value)}
               disabled={!periodId || !areaOptions.length}
             >
-              {!areaOptions.length ? (
-                <option value="">Selecione um período</option>
-              ) : null}
-
+              {!areaOptions.length ? <option value="">Selecione um período</option> : null}
               {areaOptions.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
+                <option key={a.id} value={a.id}>{a.label}</option>
               ))}
             </select>
           </div>
 
           <div>
-            <label>
-              <small>Qualis mínimo</small>
-            </label>
+            <label><small>Qualis mínimo</small></label>
             <select value={minQualis} onChange={(e) => setMinQualis(e.target.value)}>
               <option value="">(qualquer)</option>
               <option value="A1">A1</option>
@@ -216,7 +198,10 @@ export default function App() {
           </div>
 
           <div style={{ alignSelf: "flex-end" }}>
-            <button onClick={onSearch} disabled={loading || !text.trim() || !qualisFile}>
+            <button
+              onClick={onSearch}
+              disabled={loading || !text.trim() || !periodId || !areaId}
+            >
               {loading ? "Buscando..." : "Buscar"}
             </button>
           </div>
@@ -241,7 +226,6 @@ export default function App() {
 
         <div style={{ height: 10 }} />
 
-        {/* Status */}
         <div>
           <small>
             Qualis file: <span className="badge">{meta.qualisFile || "-"}</span>{" "}
@@ -301,8 +285,8 @@ function ResultsTable({ rows }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((r, i) => (
-          <tr key={`${r.journalTitle}-${i}`}>
+        {rows.map((r) => (
+          <tr key={`${(r.issn || "").trim() || r.journalTitle}`}>
             <td>
               <div style={{ fontWeight: 600 }}>
                 {r.url ? (
