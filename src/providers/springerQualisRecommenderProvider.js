@@ -146,7 +146,7 @@ export function createSpringerQualisRecommenderProvider() {
       // https://api.springernature.com/meta/v2/json com a key em secret)
       const url = new URL(appConfig.springerProxyUrl);
       url.searchParams.set("q", query);
-      url.searchParams.set("p", String(options.p || 5));
+      url.searchParams.set("p", String(options.p || 50));
 
       const res = await fetch(url.toString(), {
         headers: { Accept: "application/json" }
@@ -192,7 +192,7 @@ export function createSpringerQualisRecommenderProvider() {
       // Converte para resultados e cruza com Qualis local
       let results = Array.from(counts.values())
         .sort((a, b) => b.hits - a.hits)
-        .slice(0, options.maxResults || appConfig.maxResults || 5)
+        .slice(0, options.maxResults || appConfig.maxResults || 50)
         .map((j) => {
           // Match por ISSN primeiro; senão por título normalizado
           let qualis = null;
