@@ -60,9 +60,15 @@ export default {
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
+  const cacheKey = new Request(`${url.toString()}::origin=${origin}`, request);
 
   // Restrinja ao seu Pages
-  const allowList = ["https://alfa-m.github.io"];
+  const allowList = [
+    "https://alfa-m.github.io/journal-qualis-finder/",
+    "https://alfa-m.github.io/",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+  ];
 
   // Se não tem Origin (ex.: curl), não precisa CORS
   if (!origin) return {};
