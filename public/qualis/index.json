@@ -1,0 +1,19 @@
+{
+  "periods": [
+    {
+      "id": "2017-2020",
+      "label": "Quadriênio 2017–2020",
+      "areas": [
+        { "id": "engenharias-iv", "label": "Engenharias IV", "file": "qualis/2017-2020/engenharias_iv_2017_2020.json" }
+      ]
+    },
+    {
+      "id": "2021-2024",
+      "label": "Quadriênio 2021–2024",
+      "areas": [
+        { "id": "engenharias-iv", "label": "Engenharias IV", "file": "qualis/2021-2024/engenharias_iv_2021_2024.json" },
+        { "id": "ciencia-da-computacao", "label": "Ciência da Computação", "file": "qualis/2021-2024/computacao_2021_2024.json" }
+      ]
+    }
+  ]
+}

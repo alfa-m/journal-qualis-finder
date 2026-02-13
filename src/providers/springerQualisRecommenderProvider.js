@@ -7,13 +7,14 @@ export function createSpringerQualisRecommenderProvider() {
   let qualisCache = null;
   let qualisIndex = null;
 
-  async function loadQualis() {
-    if (qualisCache) return qualisCache;
-    const res = await fetch(appConfig.qualisJsonUrl, { cache: "no-store" });
-    if (!res.ok) throw new Error("Falha ao carregar qualis JSON");
-    qualisCache = await res.json();
-    return qualisCache;
-  }
+  async function loadQualis(qualisFile) {
+  if (!qualisFile) throw new Error("Arquivo Qualis não selecionado.");
+  const url = `${import.meta.env.BASE_URL}${qualisFile}`; // qualisFile já é relativo ao public
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Falha ao carregar Qualis: ${qualisFile}`);
+  return await res.json();
+}
+
 
   async function buildQualisIndex() {
     if (qualisIndex) return qualisIndex;

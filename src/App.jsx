@@ -5,37 +5,37 @@ import { createQualisLocalProvider } from "./providers/qualisLocalProvider.js";
 import { createSpringerProvider } from "./providers/springerProvider.js";
 import { createRecommenderBasicProvider } from "./providers/recommenderBasicProvider.js";
 import { createSpringerQualisRecommenderProvider } from "./providers/springerQualisRecommenderProvider.js";
+import React, { useEffect, useMemo, useState } from "react";
+import { loadQualisCatalog, findQualisFile } from "./core/qualisCatalog.js";
 
 export default function App() {
-  const registry = useMemo(() => {
-  const r = new ProviderRegistry();
+  const [catalog, setCatalog] = useState(null);
+  const [periodId, setPeriodId] = useState("");
+  const [areaId, setAreaId] = useState("");
 
-  // Recomendação real por tema:
-  r.register(createSpringerQualisRecommenderProvider());
+  useEffect(() => {
+    loadQualisCatalog().then((c) => {
+      setCatalog(c);
+      // define defaults
+      const p0 = c?.periods?.[0];
+      const a0 = p0?.areas?.[0];
+      if (p0?.id) setPeriodId(p0.id);
+      if (a0?.id) setAreaId(a0.id);
+    }).catch(console.error);
+  }, []);
 
-  // (Opcional) manter consulta direta ao Qualis por nome do periódico:
-  // r.register(createQualisLocalProvider());
-
-  // (Opcional) manter Springer's raw provider:
-  // r.register(createSpringerProvider());
-
-  return r;
-}, []);
-
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState([]);
-  const [minQualis, setMinQualis] = useState("");
-  const [error, setError] = useState("");
+  const areaOptions = catalog?.periods?.find(p => p.id === periodId)?.areas ?? [];
+  const qualisFile = catalog ? findQualisFile(catalog, periodId, areaId) : null;
 
   async function onSearch() {
     setError("");
     setLoading(true);
     try {
       const results = await registry.runAll(text, {
-        minQualis,
-        maxResults: appConfig.maxResults
-      });
+      minQualis,
+      maxResults: appConfig.maxResults,
+      qualisFile
+    });
 
       // Merge por ISSN/título
       const byKey = new Map();
@@ -70,72 +70,30 @@ export default function App() {
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <h1>Journal + Qualis Finder</h1>
-        <small>
-          Cole um título/abstract/ideia e receba periódicos sugeridos + classificação Qualis.
-          (Base inicial: Qualis via JSON local; Springer via API quando configurada.)
-        </small>
-
-        <div style={{ height: 12 }} />
-
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Ex.: 'Sistemas fotovoltaicos off-grid'"
-        />
-
-        <div style={{ height: 12 }} />
-
-        <div className="row">
-          <div>
-            <label>
-              <small>Qualis mínimo</small>
-            </label>
-            <select value={minQualis} onChange={(e) => setMinQualis(e.target.value)}>
-              <option value="">(qualquer)</option>
-              <option value="A1">A1</option>
-              <option value="A2">A2</option>
-              <option value="A3">A3</option>
-              <option value="A4">A4</option>
-              <option value="B1">B1</option>
-              <option value="B2">B2</option>
-              <option value="B3">B3</option>
-              <option value="B4">B4</option>
-              <option value="C">C</option>
-            </select>
-          </div>
-
-          <div style={{ alignSelf: "flex-end" }}>
-            <button onClick={onSearch} disabled={loading || !text.trim()}>
-              {loading ? "Buscando..." : "Buscar"}
-            </button>
-          </div>
+    <>
+      <div className="row">
+        <div>
+          <label><small>Período (Evento de Classificação)</small></label>
+          <select value={periodId} onChange={(e)=>{ setPeriodId(e.target.value); setAreaId(""); }}>
+            <option value="" disabled>Selecione</option>
+            {catalog?.periods?.map(p => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
         </div>
 
-        {error ? <p style={{ color: "crimson", marginTop: 10 }}>{error}</p> : null}
-
-        <ResultsTable rows={rows} />
+        <div>
+          <label><small>Área</small></label>
+          <select value={areaId} onChange={(e)=>setAreaId(e.target.value)} disabled={!periodId}>
+            <option value="" disabled>Selecione</option>
+            {areaOptions.map(a => (
+              <option key={a.id} value={a.id}>{a.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
-
-      <div style={{ height: 14 }} />
-
-      <div className="card">
-        <h1>Como evoluir esse projeto</h1>
-        <ul>
-          <li>
-            Trocar o <span className="badge">qualis.sample.json</span> pelo dataset final (pode incluir área/quadriênio no futuro).
-          </li>
-          <li>
-            Trocar o <span className="badge">recommender-basic</span> por embeddings (TF-IDF, modelos de sentença via serviço, etc.).
-          </li>
-          <li>
-            Adicionar novos providers (Scopus, DOAJ, Semantic Scholar, OpenAlex, etc.) usando o mesmo contrato.
-          </li>
-        </ul>
-      </div>
-    </div>
+      {/* resto do seu UI */}
+    </>
   );
 }
 
