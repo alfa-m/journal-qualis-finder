@@ -1,124 +1,183 @@
 import { appConfig } from "../config/appConfig.js";
 import { normalizeText } from "../core/textUtils.js";
 
-// Recomendação por "tema": busca artigos na Springer (Metadata API),
-// agrega por periódico e cruza com Qualis local.
+/**
+ * Provider de recomendação "por tema":
+ * 1) Consulta a Springer Metadata API com o texto (título/abstract/ideia)
+ * 2) Agrega os resultados por periódico (publicationName)
+ * 3) Cruza com o Qualis local (JSON) selecionado por período + área via options.qualisFile
+ *
+ * Espera que o JSON Qualis tenha colunas (como seu dataset atual):
+ * - ISSN
+ * - "Título"
+ * - Estrato
+ */
 export function createSpringerQualisRecommenderProvider() {
-  let qualisCache = null;
-  let qualisIndex = null;
+  // cache por arquivo Qualis selecionado
+  const qualisCacheByFile = new Map(); // qualisFile -> array
+  const qualisIndexByFile = new Map(); // qualisFile -> { byIssn, byTitle }
+
+  function baseUrlJoin(relPath) {
+    // relPath: "qualis/2021-2024/engenharias-iv.json"
+    // BASE_URL já contém "/repo/" em GitHub Pages quando base está configurado
+    const base = import.meta.env.BASE_URL || "/";
+    if (!relPath) return base;
+    if (relPath.startsWith("/")) return `${base}${relPath.slice(1)}`;
+    return `${base}${relPath}`;
+  }
 
   async function loadQualis(qualisFile) {
-  if (!qualisFile) throw new Error("Arquivo Qualis não selecionado.");
-  const url = `${import.meta.env.BASE_URL}${qualisFile}`; // qualisFile já é relativo ao public
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Falha ao carregar Qualis: ${qualisFile}`);
-  return await res.json();
-}
+    if (!qualisFile) throw new Error("Arquivo Qualis não selecionado (qualisFile).");
 
+    if (qualisCacheByFile.has(qualisFile)) return qualisCacheByFile.get(qualisFile);
 
-  async function buildQualisIndex() {
-    if (qualisIndex) return qualisIndex;
-    const data = await loadQualis();
+    const url = baseUrlJoin(qualisFile);
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Falha ao carregar Qualis (${res.status}): ${qualisFile}`);
 
-    // O JSON: ISSN, "Título", Estrato
-    const byIssn = new Map();
-    const byTitle = new Map();
+    const json = await res.json();
+    qualisCacheByFile.set(qualisFile, json);
+    return json;
+  }
+
+  async function buildQualisIndex(qualisFile) {
+    if (qualisIndexByFile.has(qualisFile)) return qualisIndexByFile.get(qualisFile);
+
+    const data = await loadQualis(qualisFile);
+
+    const byIssn = new Map(); // "1234-5678" -> { title, qualis, issn }
+    const byTitle = new Map(); // normalizeText(title) -> { title, qualis, issn }
 
     for (const row of data) {
-      const issn = (row?.ISSN || "").trim();
-      const title = (row?.["Título"] || "").trim();
-      const qualis = (row?.Estrato || "").trim().toUpperCase();
+      const issnRaw = (row?.ISSN || "").toString().trim();
+      const titleRaw = (row?.["Título"] || "").toString().trim();
+      const qualisRaw = (row?.Estrato || "").toString().trim().toUpperCase();
 
-      if (issn) byIssn.set(issn.replace(/\s/g, ""), { title, qualis, issn });
-      if (title) byTitle.set(normalizeText(title), { title, qualis, issn: issn || null });
+      if (!titleRaw) continue;
+
+      const issn = normalizeIssn(issnRaw) || null;
+      const titleKey = normalizeText(titleRaw);
+
+      const entry = { title: titleRaw, qualis: qualisRaw || null, issn };
+
+      if (issn) byIssn.set(issn, entry);
+      if (titleKey) byTitle.set(titleKey, entry);
     }
 
-    qualisIndex = { byIssn, byTitle };
-    return qualisIndex;
+    const idx = { byIssn, byTitle, count: data.length };
+    qualisIndexByFile.set(qualisFile, idx);
+    return idx;
   }
 
   function normalizeIssn(issn) {
-    return (issn || "").replace(/\s/g, "");
+    return (issn || "").toString().replace(/\s/g, "").trim();
   }
 
   function extractIssn(record) {
-    // A resposta da Metadata API pode variar. Tentamos alguns formatos comuns:
-    // - r.issn
-    // - r.issn = ["xxxx-xxxx", ...]
-    // - r.issnPrint / r.issnElectronic (dependendo do payload)
-    const v = record?.issn || record?.issnPrint || record?.issnElectronic || null;
+    // A Metadata API pode retornar formatos diferentes
+    const v =
+      record?.issn ||
+      record?.issnPrint ||
+      record?.issnElectronic ||
+      record?.pissn ||
+      record?.eissn ||
+      null;
+
     if (Array.isArray(v)) return v.find(Boolean) || null;
     return v;
+  }
+
+  function extractUrl(record) {
+    // No payload da Springer, "url" costuma ser lista [{format, value}]
+    const u = record?.url;
+    if (Array.isArray(u) && u.length > 0) return u[0]?.value || null;
+    if (typeof u === "string") return u;
+    return null;
   }
 
   return {
     id: "springer-qualis-recommender",
     name: "Recomendador (Springer + Qualis)",
     async search(query, options = {}) {
-      const q = normalizeText(query);
-      if (!q) return [];
+      const qNorm = normalizeText(query);
+      if (!qNorm) return [];
 
-      if (!appConfig.springerApiKey) {
-        // Sem key, não dá para chamar a API
-        return [];
+      // 1) key obrigatória
+      if (!appConfig.springerApiKey) return [];
+
+      // 2) Qualis file selecionado
+      const qualisFile = options.qualisFile;
+      const idx = await buildQualisIndex(qualisFile);
+
+      // meta/debug opcional (ajuda a validar que carregou)
+      if (typeof options.onMeta === "function") {
+        options.onMeta({
+          qualisCount: idx.count,
+          qualisFile
+        });
       }
 
-      const { byIssn, byTitle } = await buildQualisIndex();
-
-      // Springer Metadata API endpoint (conforme seu provider atual)
+      // 3) Springer Metadata API
+      // Docs: https://dev.springernature.com/docs/api-endpoints/metadata-api/
       const url = new URL("https://api.springernature.com/metadata/json");
-      url.searchParams.set("q", query);       // usa o texto original (não normalizado)
-      url.searchParams.set("p", String(options.p || 50)); // mais docs => melhor agregação
+      url.searchParams.set("q", query); // texto original
+      url.searchParams.set("p", String(options.p || 50)); // 50 tende a dar recomendações melhores
       url.searchParams.set("api_key", appConfig.springerApiKey);
 
       const res = await fetch(url.toString());
       if (!res.ok) {
-        // Mostra erro “amigável”
         throw new Error(`Springer API falhou (HTTP ${res.status}).`);
       }
 
       const data = await res.json();
       const records = Array.isArray(data?.records) ? data.records : [];
 
-      // Agrega por periódico (publicationName)
-      const counts = new Map();
+      if (typeof options.onMeta === "function") {
+        options.onMeta({ springerRecords: records.length });
+      }
+
+      // 4) Agrega por periódico
+      const counts = new Map(); // key -> { journalTitle, issn, hits, url }
 
       for (const r of records) {
         const journalTitle =
-          r.publicationName || r.journalTitle || r.journal || r.title || null;
+          r.publicationName || r.journalTitle || r.journal || r.publication || null;
         if (!journalTitle) continue;
 
-        const issn = extractIssn(r);
-        const key = normalizeIssn(issn) || normalizeText(journalTitle);
+        const issn = normalizeIssn(extractIssn(r));
+        const key = issn || normalizeText(journalTitle);
 
         const prev = counts.get(key) || {
           journalTitle,
-          issn: issn ? normalizeIssn(issn) : null,
+          issn: issn || null,
           hits: 0,
-          url: r?.url?.[0]?.value || null
+          url: extractUrl(r) || null
         };
 
         prev.hits += 1;
-        // tenta manter o “melhor” title/url/issn conforme aparece
         prev.journalTitle = prev.journalTitle || journalTitle;
-        prev.issn = prev.issn || (issn ? normalizeIssn(issn) : null);
-        prev.url = prev.url || (r?.url?.[0]?.value || null);
+        prev.issn = prev.issn || (issn || null);
+        prev.url = prev.url || (extractUrl(r) || null);
 
         counts.set(key, prev);
       }
 
-      // Converte para resultados e cruza com Qualis local
-      const results = Array.from(counts.values())
+      // 5) Converte para lista e cruza com Qualis
+      const minQualis = (options.minQualis || "").trim().toUpperCase();
+      const onlyWithQualis = !!options.onlyWithQualis;
+
+      let results = Array.from(counts.values())
         .sort((a, b) => b.hits - a.hits)
         .slice(0, options.maxResults || 50)
         .map((j) => {
-          // Match por ISSN primeiro; senão por título aproximado (normalizado)
           let qualis = null;
 
-          if (j.issn && byIssn.has(j.issn)) {
-            qualis = byIssn.get(j.issn).qualis;
+          // Match por ISSN primeiro
+          if (j.issn && idx.byIssn.has(j.issn)) {
+            qualis = idx.byIssn.get(j.issn).qualis;
           } else {
-            const hit = byTitle.get(normalizeText(j.journalTitle));
+            // Match exato por título normalizado
+            const hit = idx.byTitle.get(normalizeText(j.journalTitle));
             if (hit) qualis = hit.qualis;
           }
 
@@ -130,15 +189,20 @@ export function createSpringerQualisRecommenderProvider() {
             qualis,
             event: null,
             url: j.url,
-            // score proporcional à frequência do periódico nos resultados da Springer
+            // score baseado em frequência do periódico nos records retornados
             score: j.hits
           };
         });
 
-      // Filtro por Qualis mínimo (se definido)
-      const minQualis = (options.minQualis || "").trim().toUpperCase();
+      // 6) filtros
+      if (onlyWithQualis) {
+        results = results.filter((r) => !!r.qualis);
+      }
+
       if (minQualis) {
-        return results.filter((r) => (r.qualis ? qualisRank(r.qualis) <= qualisRank(minQualis) : false));
+        results = results.filter((r) =>
+          r.qualis ? qualisRank(r.qualis) <= qualisRank(minQualis) : false
+        );
       }
 
       return results;
