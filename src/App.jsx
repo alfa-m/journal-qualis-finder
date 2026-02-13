@@ -74,7 +74,7 @@ export default function App() {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Ex.: 'Explainable AI para diagnóstico médico usando Grad-CAM e CNN...'"
+          placeholder="Ex.: 'Off-grid systems'"
         />
 
         <div style={{ height: 12 }} />
